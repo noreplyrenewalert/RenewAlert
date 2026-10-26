@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RenewAlert</title>
+<style>
+  :root { --b:#000; --w:#fff; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--w); color:var(--b); font:17px/1.5 "Helvetica Neue", Arial, sans-serif; }
+  main { max-width:520px; margin:0 auto; padding:56px 24px 80px; }
+  h1 { font-size:44px; line-height:1; margin:0 0 40px; font-weight:900; letter-spacing:-1.5px; }
+  label { display:block; font-weight:700; margin:20px 0 6px; }
+  input { width:100%; padding:12px; font:inherit; color:var(--b); background:var(--w); border:1px solid var(--b); border-radius:0; }
+  input::placeholder { color:var(--b); opacity:1; }
+  input:focus, button:focus-visible { outline:3px solid var(--b); outline-offset:2px; }
+  button { margin-top:28px; width:100%; padding:14px; font:inherit; font-weight:700; color:var(--w); background:var(--b); border:2px solid var(--b); border-radius:0; cursor:pointer; }
+  button:hover { color:var(--b); background:var(--w); }
+  button.alt { margin-top:12px; }
+  #msg { margin-top:20px; padding:12px; border:2px solid var(--b); font-weight:700; }
+  #msg.ok { background:var(--b); color:var(--w); }
+  #preview { margin-top:24px; padding:20px; border:1px solid var(--b); white-space:pre-wrap; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>RenewAlert</h1>
+
+  <form id="login">
+    <label for="pw">Password</label>
+    <input id="pw" type="password" autocomplete="current-password" required>
+    <button type="submit">Log in</button>
+  </form>
+
+  <form id="send" hidden>
+    <label for="to">Recipient email</label>
+    <input id="to" type="email" placeholder="name@example.com" required>
+    <label for="amount">Amount due (AED)</label>
+    <input id="amount" type="number" step="0.01" min="0.01" placeholder="40.00" required>
+    <label for="reason">Reason</label>
+    <input id="reason" type="text" placeholder="Netflix subscription" required>
+    <label for="due">Due date</label>
+    <input id="due" type="date" required>
+    <label for="next">Next payment date</label>
+    <input id="next" type="date" required>
+    <button type="button" id="prev">Preview email</button>
+    <div id="preview" hidden></div>
+    <button type="submit" class="alt">Send email</button>
+    <button type="button" id="out" class="alt">Log out</button>
+  </form>
+
+  <div id="msg" hidden role="status"></div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const msg = $("msg");
+const say = (t, ok) => { msg.textContent = t; msg.className = ok ? "ok" : ""; msg.hidden = false; };
+const fmt = (d) => new Date(d + "T00:00:00Z").toLocaleDateString("en-GB", { day:"numeric", month:"long", year:"numeric", timeZone:"UTC" });
+const show = () => { const t = sessionStorage.getItem("ra"); $("login").hidden = !!t; $("send").hidden = !t; };
+show();
+
+$("login").addEventListener("submit", async (e) => {
+  e.preventDefault(); msg.hidden = true;
+  const r = await fetch("/.netlify/functions/login", { method:"POST", body: JSON.stringify({ password: $("pw").value }) });
+  const d = await r.json();
+  if (!r.ok) return say(d.error, false);
+  sessionStorage.setItem("ra", d.token); $("pw").value = ""; show();
+});
+
+$("prev").addEventListener("click", () => {
+  if (!$("send").reportValidity()) return;
+  const amt = "AED " + Number($("amount").value).toFixed(2), due = fmt($("due").value), next = fmt($("next").value);
+  $("preview").textContent = `Subject: Payment Reminder: ${amt} Due on ${due}\n\nDear Customer,\n\nThis is a formal reminder regarding your payment.\n\nAmount due: ${amt}\nReason: ${$("reason").value}\nDue date: ${due}\nNext payment date: ${next}\n\nPlease ensure that payment is made on or before the due date. The following payment will be due on ${next}.\n\nKind regards,\nRenewAlert`;
+  $("preview").hidden = false;
+});
+
+$("send").addEventListener("submit", async (e) => {
+  e.preventDefault(); msg.hidden = true;
+  const r = await fetch("/.netlify/functions/send", { method:"POST", body: JSON.stringify({
+    token: sessionStorage.getItem("ra"), to: $("to").value, amount: $("amount").value,
+    reason: $("reason").value, dueDate: $("due").value, nextDate: $("next").value }) });
+  const d = await r.json();
+  if (r.status === 401) { sessionStorage.removeItem("ra"); show(); }
+  if (!r.ok) return say(d.message, false);
+  say("Sent to " + $("to").value, true); $("send").reset(); $("preview").hidden = true;
+});
+
+$("out").addEventListener("click", () => { sessionStorage.removeItem("ra"); msg.hidden = true; show(); });
+</script>
+</body>
+</html>
