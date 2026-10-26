@@ -36,7 +36,9 @@ exports.handler = async (event) => {
     await t.sendMail({ from: `"RenewAlert" <${process.env.GMAIL_USER}>`, to, subject, text, html });
     return res(200, "Sent.");
   } catch (e) {
-    return res(500, "Could not send the email. Check the Gmail settings.");
+    console.error("sendMail failed:", e.code, e.message);
+    if (e.code === "EAUTH") return res(500, "Gmail rejected the login. Check GMAIL_USER and that GMAIL_APP_PASSWORD is a valid 16-character App Password.");
+    return res(500, "Could not send the email: " + (e.message || "unknown error"));
   }
 };
 
