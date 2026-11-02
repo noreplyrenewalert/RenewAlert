@@ -71,7 +71,7 @@ $("login").addEventListener("submit", async (e) => {
 $("prev").addEventListener("click", () => {
   if (!$("send").reportValidity()) return;
   const amt = "AED " + Number($("amount").value).toFixed(2), due = fmt($("due").value), next = fmt($("next").value);
-  $("preview").textContent = `Subject: Payment Reminder: ${amt} Due on ${due}\n\nDear Customer,\n\nThis is a formal reminder regarding your payment.\n\nAmount due: ${amt}\nReason: ${$("reason").value}\nDue date: ${due}\nNext payment date: ${next}\n\nPlease ensure that payment is made on or before the due date. The following payment will be due on ${next}.\n\nKind regards,\nRenewAlert`;
+  $("preview").textContent = `Subject: Order Confirmation\n\nDear Customer,\n\nThank you for your purchase here at 3D Hub. We will ship your order as soon as possible.\n\nReceipt\nItem: ${$("reason").value}\nTotal: ${amt}\n\nKind regards,\n3D Hub`;
   $("preview").hidden = false;
 });
 
