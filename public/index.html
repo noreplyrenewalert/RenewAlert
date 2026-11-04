@@ -64,8 +64,12 @@
       <input id="item" type="text" maxlength="200" placeholder="Dragon figurine" required>
       <label for="qty">Quantity</label>
       <input id="qty" type="number" step="1" min="1" max="1000" value="1" required>
-      <label for="price">Price each (AED)</label>
-      <input id="price" type="number" step="0.01" min="0.01" placeholder="40.00" required>
+      <label for="price">Price (AED, or write Free)</label>
+      <input id="price" type="text" maxlength="40" placeholder="40.00 or Free" required>
+      <label for="prio">Priority delivery (optional)</label>
+      <input id="prio" type="text" maxlength="40" placeholder="15 or Free">
+      <label for="prep">Preparation (optional)</label>
+      <input id="prep" type="text" maxlength="40" placeholder="10 or Free">
     </fieldset>
 
     <button type="button" id="prev">Preview email</button>
@@ -82,6 +86,12 @@ const msg = $("msg");
 const say = (t, ok) => { msg.textContent = t; msg.className = ok ? "ok" : ""; msg.hidden = false; };
 const fmt = (d) => new Date(d + "T00:00:00Z").toLocaleDateString("en-GB", { day:"numeric", month:"long", year:"numeric", timeZone:"UTC" });
 const today = () => new Date().toLocaleDateString("en-GB", { day:"numeric", month:"long", year:"numeric", timeZone:"Asia/Dubai" });
+const money = (v) => {
+  const s = String(v || "").trim();
+  const n = s.replace(/^AED\s*/i, "").replace(/,/g, "");
+  if (/^\d+(\.\d{1,2})?$/.test(n)) return { label: "AED " + Number(n).toFixed(2), value: Number(n) };
+  return { label: s, value: 0 };
+};
 const randomNo = () => Math.floor(1 + Math.random() * 6000);
 let autoNo = randomNo();
 const orderNo = () => ($("ono").value ? parseInt($("ono").value, 10) : autoNo);
@@ -107,9 +117,15 @@ $("login").addEventListener("submit", async (e) => {
 $("prev").addEventListener("click", () => {
   if (!$("send").reportValidity()) return;
   if (isOrder()) {
-    const qty = parseInt($("qty").value, 10), price = Number($("price").value);
+    const qty = parseInt($("qty").value, 10);
+    const p = money($("price").value), d = money($("prio").value), r = money($("prep").value);
+    const total = (p.value + d.value + r.value).toFixed(2);
     const name = $("cname").value.trim();
-    $("preview").textContent = `Subject: Order Confirmation\n\n${name ? "Hi " + name + "," : "Hello,"}\n\nThank you for your purchase at 3D Hub. We will ship your order as soon as possible.\n\nReceipt\nOrder number: #${orderNo()}\nDate: ${today()}\nItem: ${$("item").value}\nQuantity: ${qty}\nPrice each: AED ${price.toFixed(2)}\nTotal: AED ${(qty * price).toFixed(2)}\n\nKind regards,\n3D Hub`;
+    let t = `Subject: Order Confirmation\n\n${name ? "Hi " + name + "," : "Hello,"}\n\nThank you for your purchase at 3D Hub. We will ship your order as soon as possible.\n\nReceipt\nOrder number: #${orderNo()}\nDate: ${today()}\nItem: ${$("item").value}\nQuantity: ${qty}\nPrice: ${p.label}`;
+    if (d.label) t += `\nPriority delivery: ${d.label}`;
+    if (r.label) t += `\nPreparation: ${r.label}`;
+    t += `\nTotal: AED ${total}\n\nKind regards,\n3D Hub`;
+    $("preview").textContent = t;
   } else {
     const amt = "AED " + Number($("amount").value).toFixed(2), due = fmt($("due").value), next = fmt($("next").value);
     $("preview").textContent = `Subject: Payment Reminder: ${amt} Due on ${due}\n\nDear Customer,\n\nThis is a formal reminder regarding your payment.\n\nAmount due: ${amt}\nReason: ${$("reason").value}\nDue date: ${due}\nNext payment date: ${next}\n\nPlease ensure that payment is made on or before the due date. The following payment will be due on ${next}.\n\nKind regards,\nRenewAlert`;
@@ -120,7 +136,7 @@ $("prev").addEventListener("click", () => {
 $("send").addEventListener("submit", async (e) => {
   e.preventDefault(); msg.hidden = true;
   const body = isOrder()
-    ? { type: "order", token: sessionStorage.getItem("ra"), to: $("to").value, name: $("cname").value, item: $("item").value, qty: $("qty").value, price: $("price").value, orderNo: orderNo() }
+    ? { type: "order", token: sessionStorage.getItem("ra"), to: $("to").value, name: $("cname").value, item: $("item").value, qty: $("qty").value, price: $("price").value, priority: $("prio").value, prep: $("prep").value, orderNo: orderNo() }
     : { type: "reminder", token: sessionStorage.getItem("ra"), to: $("to").value, amount: $("amount").value, reason: $("reason").value, dueDate: $("due").value, nextDate: $("next").value };
   const r = await fetch("/.netlify/functions/send", { method:"POST", body: JSON.stringify(body) });
   const d = await r.json();
