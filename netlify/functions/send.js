@@ -2,9 +2,16 @@ const crypto = require("crypto");
 const nodemailer = require("nodemailer");
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const fmtDate = (d) => new Date(d + "T00:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 const today = () => new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Dubai" });
-const isDate = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d || "");
+const clean = (v) => String(v || "").trim();
+const tooLong = (...vals) => vals.some((v) => v.length > 200);
+
+function money(v) {
+  const s = clean(v);
+  const n = s.replace(/^AED\s*/i, "").replace(/,/g, "");
+  if (/^\d+(\.\d{1,2})?$/.test(n)) return { label: "AED " + Number(n).toFixed(2), value: Number(n) };
+  return { label: s, value: 0 };
+}
 
 function validToken(token) {
   const [exp, sig] = String(token || "").split(".");
@@ -14,10 +21,9 @@ function validToken(token) {
 }
 
 function buildReminder(b) {
-  const { amount, reason, dueDate, nextDate } = b;
-  if (!(Number(amount) > 0) || !reason || String(reason).length > 200 || !isDate(dueDate) || !isDate(nextDate)) return null;
-  const amt = "AED " + Number(amount).toFixed(2);
-  const due = fmtDate(dueDate), next = fmtDate(nextDate);
+  const amt = money(b.amount).label;
+  const reason = clean(b.reason), due = clean(b.dueDate), next = clean(b.nextDate);
+  if (!amt || !reason || !due || !next || tooLong(amt, reason, due, next)) return null;
   return {
     fromName: "RenewAlert",
     subject: `Payment Reminder: ${amt} Due on ${due}`,
@@ -27,23 +33,34 @@ function buildReminder(b) {
 }
 
 function buildOrder(b) {
-  const name = String(b.name || "").trim();
-  const item = String(b.item || "").trim();
-  const qty = parseInt(b.qty, 10);
-  const price = Number(b.price);
-  const num = parseInt(b.orderNo, 10);
-  if (!item || item.length > 200 || name.length > 100) return null;
-  if (!(qty >= 1 && qty <= 1000) || !(price > 0) || !(num >= 1 && num <= 6000)) return null;
-  const orderNo = "#" + num;
-  const each = "AED " + price.toFixed(2);
-  const total = "AED " + (qty * price).toFixed(2);
+  const name = clean(b.name), item = clean(b.item), qty = clean(b.qty), rawNo = clean(b.orderNo);
+  const p = money(b.price), d = money(b.priority), r = money(b.prep);
+  if (!item || !qty || !rawNo || !p.label) return null;
+  if (tooLong(name, item, qty, rawNo, p.label, d.label, r.label)) return null;
+
+  const orderNo = /^\d+$/.test(rawNo) ? "#" + parseInt(rawNo, 10) : rawNo;
+  const total = "AED " + (p.value + d.value + r.value).toFixed(2);
   const date = today();
   const hello = name ? `Hi ${name},` : "Hello,";
+
+  const rows = [
+    ["Order number", orderNo],
+    ["Date", date],
+    ["Item", item],
+    ["Quantity", qty],
+    ["Price", p.label],
+  ];
+  if (d.label) rows.push(["Priority delivery", d.label]);
+  if (r.label) rows.push(["Preparation", r.label]);
+
+  const lines = rows.map(([k, v]) => `${k}: ${v}`).join("\n");
+  const tableRows = rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("");
+
   return {
     fromName: "3D Hub",
     subject: "Order Confirmation",
-    text: `${hello}\n\nThank you for your purchase at 3D Hub. We will ship your order as soon as possible.\n\nReceipt\nOrder number: ${orderNo}\nDate: ${date}\nItem: ${item}\nQuantity: ${qty}\nPrice each: ${each}\nTotal: ${total}\n\nKind regards,\n3D Hub`,
-    html: `<p>${esc(hello)}</p><p>Thank you for your purchase at 3D Hub. We will ship your order as soon as possible.</p><p><b>Receipt</b></p><table cellpadding="6" style="border-collapse:collapse;border:1px solid #000"><tr><td>Order number</td><td>${esc(orderNo)}</td></tr><tr><td>Date</td><td>${esc(date)}</td></tr><tr><td>Item</td><td>${esc(item)}</td></tr><tr><td>Quantity</td><td>${qty}</td></tr><tr><td>Price each</td><td>${esc(each)}</td></tr><tr><td><b>Total</b></td><td><b>${esc(total)}</b></td></tr></table><p>Kind regards,<br>3D Hub</p>`,
+    text: `${hello}\n\nThank you for your purchase at 3D Hub. We will ship your order as soon as possible.\n\nReceipt\n${lines}\nTotal: ${total}\n\nKind regards,\n3D Hub`,
+    html: `<p>${esc(hello)}</p><p>Thank you for your purchase at 3D Hub. We will ship your order as soon as possible.</p><p><b>Receipt</b></p><table cellpadding="6" style="border-collapse:collapse;border:1px solid #000">${tableRows}<tr><td><b>Total</b></td><td><b>${esc(total)}</b></td></tr></table><p>Kind regards,<br>3D Hub</p>`,
   };
 }
 
@@ -55,7 +72,7 @@ exports.handler = async (event) => {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(b.to || "")) return res(400, "Enter a valid recipient email.");
 
   const mail = b.type === "order" ? buildOrder(b) : buildReminder(b);
-  if (!mail) return res(400, "Fill in every field correctly.");
+  if (!mail) return res(400, "Fill in every required field.");
 
   try {
     const t = nodemailer.createTransport({
